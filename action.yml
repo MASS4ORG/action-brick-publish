@@ -1,0 +1,134 @@
+name: Turian brick publish
+description: Sign qualified Turian brick archives with a publisher key and upload them to a MASS4 asset store
+author: MASS4
+branding:
+  icon: upload-cloud
+  color: purple
+
+# Run this in a job of its own that runs no brick code: it is the only step that holds the signing key and the store
+# token. Pass them from secrets of a protected environment.
+inputs:
+  directory:
+    description: Folder, relative to the workspace, holding the archives and their qualifications
+    default: qualified
+  archive:
+    description: File name of the brick's archive in the folder
+    required: true
+  qualification:
+    description: File name of the qualification that binds the archive's bytes to its release tag and commit
+    required: true
+  twin-archive:
+    description: File name of the twin's archive; empty when there is none
+    default: ""
+  twin-qualification:
+    description: File name of the twin's qualification
+    default: ""
+  image:
+    description: The ghcr.io/mass4org/turian-cli image that built the archives, pinned by sha256 digest; it also signs them
+    required: true
+  store-url:
+    description: Asset store to upload to
+    default: https://bricks.mass4.org
+  signing-key:
+    description: OpenSSH Ed25519 private key the store trusts for the brick's namespace
+    required: true
+  public-key:
+    description: Its public key
+    required: true
+  store-token:
+    description: Publish token for the store
+    required: true
+
+outputs:
+  release:
+    description: File name of the brick's signed release metadata in the folder
+    value: ${{ steps.sign.outputs.release }}
+  twin-release:
+    description: File name of the twin's signed release metadata; empty without a twin
+    value: ${{ steps.sign.outputs.twin-release }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check the image and the qualified bytes
+      shell: bash
+      env:
+        TURIAN_IMAGE: ${{ inputs.image }}
+        DIRECTORY: ${{ inputs.directory }}
+        ARCHIVE: ${{ inputs.archive }}
+        QUALIFICATION: ${{ inputs.qualification }}
+        TWIN_ARCHIVE: ${{ inputs.twin-archive }}
+        TWIN_QUALIFICATION: ${{ inputs.twin-qualification }}
+      run: |
+        # Publishing never resolves a tag: the archives are signed by the exact CLI that built them.
+        if [[ ! "$TURIAN_IMAGE" =~ ^ghcr\.io/mass4org/turian-cli(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$ ]]; then
+          echo "::error::$TURIAN_IMAGE is not a ghcr.io/mass4org/turian-cli image pinned by sha256 digest."
+          exit 1
+        fi
+        docker pull -q "$TURIAN_IMAGE" > /dev/null
+        validate() {
+          docker run --rm -v "$GITHUB_WORKSPACE/$DIRECTORY:/release:ro" --entrypoint brick-release "$TURIAN_IMAGE" \
+            validate "/release/$1" "/release/$2"
+        }
+        validate "$ARCHIVE" "$QUALIFICATION"
+        [[ -z "$TWIN_ARCHIVE" ]] || validate "$TWIN_ARCHIVE" "$TWIN_QUALIFICATION"
+
+    - name: Sign
+      id: sign
+      shell: bash
+      env:
+        TURIAN_IMAGE: ${{ inputs.image }}
+        DIRECTORY: ${{ inputs.directory }}
+        ARCHIVE: ${{ inputs.archive }}
+        QUALIFICATION: ${{ inputs.qualification }}
+        TWIN_ARCHIVE: ${{ inputs.twin-archive }}
+        TWIN_QUALIFICATION: ${{ inputs.twin-qualification }}
+        MASS4_BRICKS_CI_SIGNING_KEY: ${{ inputs.signing-key }}
+        MASS4_BRICKS_CI_PUBLIC_KEY: ${{ inputs.public-key }}
+      run: |
+        : "${MASS4_BRICKS_CI_SIGNING_KEY:?Missing signing key}" "${MASS4_BRICKS_CI_PUBLIC_KEY:?Missing public key}"
+        # The keys reach the container through its environment, never its command line.
+        sign() {
+          docker run --rm --user "$(id -u):$(id -g)" -e MASS4_BRICKS_CI_SIGNING_KEY -e MASS4_BRICKS_CI_PUBLIC_KEY \
+            -e RUNNER_TEMP=/tmp -v "$GITHUB_WORKSPACE/$DIRECTORY:/release" --entrypoint brick-release "$TURIAN_IMAGE" \
+            sign "/release/$1" "/release/$2" "/release/$3"
+        }
+        sign "$ARCHIVE" "$QUALIFICATION" release.json
+        echo "release=release.json" >> "$GITHUB_OUTPUT"
+        if [[ -n "$TWIN_ARCHIVE" ]]; then
+          sign "$TWIN_ARCHIVE" "$TWIN_QUALIFICATION" twin-release.json
+          echo "twin-release=twin-release.json" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Upload
+      shell: bash
+      env:
+        TURIAN_IMAGE: ${{ inputs.image }}
+        DIRECTORY: ${{ inputs.directory }}
+        ARCHIVE: ${{ inputs.archive }}
+        QUALIFICATION: ${{ inputs.qualification }}
+        TWIN_ARCHIVE: ${{ inputs.twin-archive }}
+        TWIN_QUALIFICATION: ${{ inputs.twin-qualification }}
+        STORE_URL: ${{ inputs.store-url }}
+        STORE_TOKEN: ${{ inputs.store-token }}
+      run: |
+        : "${STORE_TOKEN:?Missing publish token}"
+        # The CLI reads the token from GAYA_REGISTRY_TOKEN_<HOST>, the host upper-cased with other characters as _.
+        host="${STORE_URL#*://}"
+        host="${host%%[:/]*}"
+        variable="GAYA_REGISTRY_TOKEN_$(tr '[:lower:]' '[:upper:]' <<< "$host" | tr -c 'A-Z0-9\n' '_')"
+        export "$variable=$STORE_TOKEN"
+        upload() {
+          docker run --rm -v "$GITHUB_WORKSPACE/$DIRECTORY:/release:ro" --entrypoint brick-release "$TURIAN_IMAGE" \
+            validate "/release/$1" "/release/$2"
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e "$variable" \
+            -v "$GITHUB_WORKSPACE/$DIRECTORY:/release:ro" "$TURIAN_IMAGE" \
+            brick upload "$STORE_URL" "/release/$1" --release "/release/$3"
+        }
+        # The source first: a twin's bakeOf names the source release it stands in for.
+        upload "$ARCHIVE" "$QUALIFICATION" release.json
+        [[ -z "$TWIN_ARCHIVE" ]] || upload "$TWIN_ARCHIVE" "$TWIN_QUALIFICATION" twin-release.json
+        {
+          echo "Uploaded \`$ARCHIVE\`${TWIN_ARCHIVE:+ and \`$TWIN_ARCHIVE\`} to $STORE_URL, built and signed by \`$TURIAN_IMAGE\`."
+          echo "Store admin approval is a separate gate before index visibility."
+        } >> "$GITHUB_STEP_SUMMARY"
