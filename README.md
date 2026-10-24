@@ -27,6 +27,8 @@ This is the only step that holds the signing key and the store token. Run it in 
           store-token: ${{ secrets.MASS4_BRICKS_STORE_TOKEN }}
 ```
 
+The signing container uses the pinned image's configured account, which OpenSSH can resolve through its passwd database. Temporary private-key files remain owner-only inside that container; the signed release JSON is readable by the upload step.
+
 ## Inputs
 
 | Input                | Default                    | Description                                                                         |
