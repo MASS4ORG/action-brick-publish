@@ -51,6 +51,7 @@ runs:
   using: composite
   steps:
     - name: Check the image and the qualified bytes
+      id: check
       shell: bash
       env:
         TURIAN_IMAGE: ${{ inputs.image }}
@@ -66,6 +67,10 @@ runs:
           exit 1
         fi
         docker pull -q "$TURIAN_IMAGE" > /dev/null
+        # The store records this image and version as the release's build, unsigned, beside the signatures.
+        version=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$TURIAN_IMAGE")
+        [[ -n "$version" ]] || { echo "::error::$TURIAN_IMAGE carries no org.opencontainers.image.version label."; exit 1; }
+        echo "version=$version" >> "$GITHUB_OUTPUT"
         validate() {
           docker run --rm -v "$GITHUB_WORKSPACE/$DIRECTORY:/release:ro" --entrypoint brick-release "$TURIAN_IMAGE" \
             validate "/release/$1" "/release/$2"
@@ -83,15 +88,17 @@ runs:
         QUALIFICATION: ${{ inputs.qualification }}
         TWIN_ARCHIVE: ${{ inputs.twin-archive }}
         TWIN_QUALIFICATION: ${{ inputs.twin-qualification }}
+        TURIAN_VERSION: ${{ steps.check.outputs.version }}
         MASS4_BRICKS_CI_SIGNING_KEY: ${{ inputs.signing-key }}
         MASS4_BRICKS_CI_PUBLIC_KEY: ${{ inputs.public-key }}
       run: |
         : "${MASS4_BRICKS_CI_SIGNING_KEY:?Missing signing key}" "${MASS4_BRICKS_CI_PUBLIC_KEY:?Missing public key}"
-        # The keys reach the container through its environment, never its command line.
+        # The keys reach the container through its environment, never its command line. The release JSON records the
+        # image and its version as the build, both or neither, as the store requires.
         sign() {
           docker run --rm --user "$(id -u):$(id -g)" -e MASS4_BRICKS_CI_SIGNING_KEY -e MASS4_BRICKS_CI_PUBLIC_KEY \
             -e RUNNER_TEMP=/tmp -v "$GITHUB_WORKSPACE/$DIRECTORY:/release" --entrypoint brick-release "$TURIAN_IMAGE" \
-            sign "/release/$1" "/release/$2" "/release/$3"
+            sign "/release/$1" "/release/$2" "/release/$3" --build "$TURIAN_IMAGE" "$TURIAN_VERSION"
         }
         sign "$ARCHIVE" "$QUALIFICATION" release.json
         echo "release=release.json" >> "$GITHUB_OUTPUT"
@@ -118,17 +125,26 @@ runs:
         host="${host%%[:/]*}"
         variable="GAYA_REGISTRY_TOKEN_$(tr '[:lower:]' '[:upper:]' <<< "$host" | tr -c 'A-Z0-9\n' '_')"
         export "$variable=$STORE_TOKEN"
+        # Before sending, the CLI reads the store's record of the same id, version and variant: other bytes, or a re-run
+        # built by another image than the recorded one, are refused, as is a build a curator advisory rejects. The
+        # store's record is the provenance: identical bytes with other metadata keep the first record and warn.
         upload() {
           docker run --rm -v "$GITHUB_WORKSPACE/$DIRECTORY:/release:ro" --entrypoint brick-release "$TURIAN_IMAGE" \
             validate "/release/$1" "/release/$2"
+          local status=0
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e "$variable" \
             -v "$GITHUB_WORKSPACE/$DIRECTORY:/release:ro" "$TURIAN_IMAGE" \
-            brick upload "$STORE_URL" "/release/$1" --release "/release/$3"
+            brick upload "$STORE_URL" "/release/$1" --release "/release/$3" 2> "$RUNNER_TEMP/upload-stderr" || status=$?
+          cat "$RUNNER_TEMP/upload-stderr" >&2
+          while IFS= read -r line; do
+            [[ "$line" != warning:* ]] || echo "::warning::$1: ${line#warning: }"
+          done < "$RUNNER_TEMP/upload-stderr"
+          return "$status"
         }
         # The source first: a twin's bakeOf names the source release it stands in for.
         upload "$ARCHIVE" "$QUALIFICATION" release.json
         [[ -z "$TWIN_ARCHIVE" ]] || upload "$TWIN_ARCHIVE" "$TWIN_QUALIFICATION" twin-release.json
         {
           echo "Uploaded \`$ARCHIVE\`${TWIN_ARCHIVE:+ and \`$TWIN_ARCHIVE\`} to $STORE_URL, built and signed by \`$TURIAN_IMAGE\`."
-          echo "Store admin approval is a separate gate before index visibility."
+          echo "The store records that build with the release; store admin approval is a separate gate before index visibility."
         } >> "$GITHUB_STEP_SUMMARY"

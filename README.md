@@ -42,7 +42,9 @@ This is the only step that holds the signing key and the store token. Run it in 
 | `public-key`         | required                   | Its public key                                                                      |
 | `store-token`        | required                   | Publish token for the store                                                         |
 
-`image` never defaults and never accepts a tag alone: archives are signed by the exact CLI that built them. The source is uploaded before its twin, whose `bakeOf` names it. Re-uploading identical bytes succeeds; different bytes for a published version are refused.
+`image` never defaults and never accepts a tag alone: archives are signed by the exact CLI that built them, and the release JSON records that image and its Turian version as the release's `build`. The source is uploaded before its twin, whose `bakeOf` names it; both share the brick's id and version, and each archive's own `package.json` says which variant it is.
+
+Before each upload the CLI reads the store's record of the same id, version and variant with the publish token. It refuses different bytes, a re-run built by another image than the one recorded, and a build that a curator advisory at `/api/v1/build-advisories` rejects, matched on the recorded build as well as this one. Identical bytes upload again; differences in metadata keep the store's first record and are reported as warnings.
 
 ## Outputs
 
