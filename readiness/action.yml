@@ -1,0 +1,68 @@
+name: Turian brick publish readiness
+description: Read-only check that a MASS4 asset store would accept a brick release before anything is signed or uploaded
+author: MASS4
+branding:
+  icon: check-circle
+  color: purple
+
+# Needs only the publish token and the signing identity's public key; the private key is never an input. Runs the same
+# checks as the publish action, so a scheduled or manual run catches what a tag run would fail on.
+inputs:
+  brick-path:
+    description: Brick folder, relative to the workspace, whose package.json names the release; unused when package-id is set
+    default: .
+  package-id:
+    description: Brick id; empty to read it from the manifest
+    default: ""
+  version:
+    description: Release version; empty to read it from the manifest
+    default: ""
+  variants:
+    description: Space-separated release variants whose store record is read, e.g. "source turian3.4"
+    default: source
+  image:
+    description: The ghcr.io/mass4org/turian-cli image the release workflow pins, as tag@sha256 to also check the tag
+    required: true
+  store-url:
+    description: Asset store the release would be uploaded to
+    default: https://bricks.mass4.org
+  public-key:
+    description: OpenSSH public key of the signing identity
+    required: true
+  store-token:
+    description: Raw publish token or the store token JSON export
+    required: true
+
+outputs:
+  ready:
+    description: true when every check passed
+    value: ${{ steps.readiness.outputs.ready }}
+  checked-at:
+    description: UTC time of the check
+    value: ${{ steps.readiness.outputs.checked-at }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check publish readiness
+      id: readiness
+      shell: bash
+      env:
+        BRICK_PATH: ${{ inputs.brick-path }}
+        PACKAGE_ID: ${{ inputs.package-id }}
+        PACKAGE_VERSION: ${{ inputs.version }}
+        VARIANTS: ${{ inputs.variants }}
+        IMAGE: ${{ inputs.image }}
+        STORE_URL: ${{ inputs.store-url }}
+        PUBLIC_KEY: ${{ inputs.public-key }}
+        STORE_TOKEN: ${{ inputs.store-token }}
+      run: |
+        set +x
+        source "$GITHUB_ACTION_PATH/../scripts/store-token.sh"
+        source "$GITHUB_ACTION_PATH/../scripts/readiness.sh"
+        if [[ -z "$PACKAGE_ID" || -z "$PACKAGE_VERSION" ]]; then
+          manifest="$GITHUB_WORKSPACE/$BRICK_PATH/package.json"
+          [[ -n "$PACKAGE_ID" ]] || PACKAGE_ID=$(jq -r '.id // .name // ""' "$manifest" 2>/dev/null || true)
+          [[ -n "$PACKAGE_VERSION" ]] || PACKAGE_VERSION=$(jq -r '.version // ""' "$manifest" 2>/dev/null || true)
+        fi
+        readiness_run

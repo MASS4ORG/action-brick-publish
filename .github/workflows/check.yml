@@ -16,6 +16,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Check credential helper syntax
-        run: bash -n scripts/store-token.sh
-      - name: Test normalization, authentication diagnostics and credential isolation
+        run: bash -n scripts/store-token.sh scripts/readiness.sh
+      - name: Test normalization, readiness diagnostics and credential isolation
         run: python3 -m unittest discover -s tests -v

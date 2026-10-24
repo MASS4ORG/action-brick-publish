@@ -78,6 +78,31 @@ runs:
         validate "$ARCHIVE" "$QUALIFICATION"
         [[ -z "$TWIN_ARCHIVE" ]] || validate "$TWIN_ARCHIVE" "$TWIN_QUALIFICATION"
 
+    # The same checks as the readiness action, before the signing key is used: every failing layer is named at once.
+    - name: Check publish readiness
+      shell: bash
+      env:
+        DIRECTORY: ${{ inputs.directory }}
+        QUALIFICATION: ${{ inputs.qualification }}
+        TWIN_ARCHIVE: ${{ inputs.twin-archive }}
+        IMAGE: ${{ inputs.image }}
+        READINESS_VERIFIED_VERSION: ${{ steps.check.outputs.version }}
+        STORE_URL: ${{ inputs.store-url }}
+        PUBLIC_KEY: ${{ inputs.public-key }}
+        STORE_TOKEN: ${{ inputs.store-token }}
+      run: |
+        set +x
+        source "$GITHUB_ACTION_PATH/scripts/store-token.sh"
+        source "$GITHUB_ACTION_PATH/scripts/readiness.sh"
+        PACKAGE_ID=$(jq -r '.packageId // ""' "$GITHUB_WORKSPACE/$DIRECTORY/$QUALIFICATION")
+        PACKAGE_VERSION=$(jq -r '.version // ""' "$GITHUB_WORKSPACE/$DIRECTORY/$QUALIFICATION")
+        VARIANTS=source
+        if [[ -n "$TWIN_ARCHIVE" ]]; then
+          twin=${TWIN_ARCHIVE%.brick}
+          VARIANTS+=" ${twin##*--}"
+        fi
+        readiness_run
+
     - name: Sign
       id: sign
       shell: bash

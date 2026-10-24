@@ -52,7 +52,41 @@ The `store-token` input accepts the raw `mass4_` bearer secret or the complete J
 
 The extracted secret is masked before use and reaches the CLI through its environment. Authentication is checked with a read-only `GET /api/v1/account` before publication: diagnostics distinguish local input errors, HTTP 401, HTTP 403, rate limits/server failures and network/TLS failures. No token, token metadata or response body is logged, and redirects are not followed. A successful account check confirms authentication; the release read and upload still enforce namespace and publish permissions.
 
-Before sending an archive, the action also checks the release signer against `/v1/keys`, including revocation and package-prefix restrictions. A missing registry key is reported separately from namespace publisher registration: both must authorize the CI signer. This read does not import keys or change server/client trust. Publication still performs authoritative signature and namespace checks; the preflight cannot eliminate races or replace consumer trust configuration.
+Before signing, the action runs the [publish readiness](#publish-readiness) checks for the source and twin variants. After signing it checks the actual release signer against `/v1/keys` once more. These reads do not import keys or change server/client trust. Publication still performs authoritative signature and namespace checks; the preflight cannot eliminate races or replace consumer trust configuration.
+
+## Publish readiness
+
+`MASS4ORG/action-brick-publish/readiness@v1` runs the same read-only checks without a signing key, so a scheduled or manual run catches what a tag run would fail on. It needs only the publish token and the signing identity's public key, never the private key or an administrator token. It runs every check, even after a failure, then reports one combined `ready`/`not ready` result with a UTC timestamp in the job summary and its `ready` and `checked-at` outputs, and fails the step when not ready.
+
+| Check                 | Request                                              | Fails when                                                                                                         |
+|-----------------------|------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| `image`               | registry pull                                        | the pin is not a `turian-cli` digest, its tag resolves to another digest, or the version label differs from the tag |
+| `registry-trust`      | `GET /v1/keys`                                       | the signer's fingerprint is absent, revoked, or scoped away from the package                                       |
+| `namespace-publisher` | `GET /v1/index.json`                                 | the most specific active claim covering the package does not list the fingerprint                                   |
+| `account`             | `GET /api/v1/account` with the token                 | authentication fails, or the token's namespaces do not cover the package                                           |
+| `provenance`          | `GET /api/v1/releases/{id}/{version}?variant=…` with the token | the read fails, or a recorded build image differs from the pinned one; HTTP 404, a first publication, passes |
+| `advisories`          | `GET /api/v1/build-advisories` with the token        | the list does not answer, or a rejecting advisory matches the image or names a Turian version range               |
+
+Registry signature trust and namespace publisher authority are independent layers, and both are required. Namespace registration at `/account/namespaces` does not add registry trust; adding a key to `Registry:TrustedPublicKeys` does not register it as a publisher. Each failure names the missing layer and the fingerprint. In `/v1/keys`, empty `scopes` means the key is trusted for every package. Readiness does not evaluate advisory version ranges: a rejecting range advisory fails until a person confirms the pinned version falls outside it.
+
+```yaml
+      - uses: MASS4ORG/action-brick-publish/readiness@v1
+        with:
+          image: ghcr.io/mass4org/turian-cli:3.4.0@sha256:…   # tag@digest also checks the tag
+          public-key: ${{ vars.MASS4_BRICKS_CI_PUBLIC_KEY }}
+          store-token: ${{ secrets.MASS4_BRICKS_STORE_TOKEN }}
+```
+
+| Input        | Default                    | Description                                                                 |
+|--------------|----------------------------|-----------------------------------------------------------------------------|
+| `brick-path` | `.`                        | Brick folder whose `package.json` names the release                         |
+| `package-id` |                            | Brick id; empty to read it from the manifest                                |
+| `version`    |                            | Release version; empty to read it from the manifest                         |
+| `variants`   | `source`                   | Space-separated variants whose store record is read                         |
+| `image`      | required                   | The pinned `turian-cli` image, as `tag@sha256:…` to also check the tag      |
+| `store-url`  | `https://bricks.mass4.org` | Asset store the release would go to                                         |
+| `public-key` | required                   | OpenSSH public key of the signing identity                                  |
+| `store-token`| required                   | Raw publish token or the store token JSON export                            |
 
 ## Outputs
 
