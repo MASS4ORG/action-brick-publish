@@ -227,7 +227,7 @@ if arguments[:2] == ['image', 'inspect']:
              "the store refuses a re-run with " + IMAGE),
             (200, CANARY, False, "malformed release receipt"),
             (200, {"status": "pending"}, False, "malformed release receipt"),
-            (401, CANARY, False, "HTTP 401: the store rejected the publish token"),
+            (401, CANARY, False, "HTTP 401: the store rejected the store token"),
             (403, CANARY, False, "HTTP 403"),
             (302, CANARY, False, "redirects are not followed"),
             (503, CANARY, False, "says nothing about the credential"),

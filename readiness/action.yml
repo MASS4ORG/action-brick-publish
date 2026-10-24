@@ -5,8 +5,9 @@ branding:
   icon: check-circle
   color: purple
 
-# Needs only the publish token and the signing identity's public key; the private key is never an input. Runs the same
-# checks as the publish action, so a scheduled or manual run catches what a tag run would fail on.
+# Needs only a store token and the signing identity's public key; the private key is never an input. Runs the same
+# checks as the publish action, so a scheduled or manual run catches what a tag run would fail on. A registry.read
+# token covers every check; only the publish job's own run proves the publish scope.
 inputs:
   brick-path:
     description: Brick folder, relative to the workspace, whose package.json names the release; unused when package-id is set
@@ -30,7 +31,7 @@ inputs:
     description: OpenSSH public key of the signing identity
     required: true
   store-token:
-    description: Raw publish token or the store token JSON export
+    description: Raw registry.read or registry.publish token, or the store token JSON export, for the brick's namespace
     required: true
 
 outputs:

@@ -44,8 +44,8 @@ readiness_http_problem() {
   local path=$1
   case "$HTTP_STATUS" in
     000) printf 'GET %s failed before a complete HTTP response (network, TLS or timeout).' "$path" ;;
-    401) printf 'GET %s returned HTTP 401: the store rejected the publish token (unknown, revoked, expired, or its owner or namespace grant is disabled).' "$path" ;;
-    403) printf 'GET %s returned HTTP 403: the publish token lacks the scope this read requires.' "$path" ;;
+    401) printf 'GET %s returned HTTP 401: the store rejected the store token (unknown, revoked, expired, or its owner or namespace grant is disabled).' "$path" ;;
+    403) printf 'GET %s returned HTTP 403: the store token lacks the scope this read requires.' "$path" ;;
     3??) printf 'GET %s returned HTTP %s; redirects are not followed, so check store-url.' "$path" "$HTTP_STATUS" ;;
     429|5??) printf 'GET %s returned HTTP %s (rate limit or store availability); this says nothing about the credential.' "$path" "$HTTP_STATUS" ;;
     *) printf 'GET %s returned unexpected HTTP %s; check store-url and the store deployment.' "$path" "$HTTP_STATUS" ;;
@@ -109,7 +109,7 @@ readiness_check_account() {
   fi
   if ! jq -e --arg id "$PACKAGE_ID" 'any(.prefixes[]; . as $p | $id == $p or ($id | startswith($p + ".")))' \
     "$HTTP_BODY" > /dev/null; then
-    readiness_record "$stage" fail "The publish token authenticates but is scoped to [${prefixes:-no namespace}], which does not cover $PACKAGE_ID. Issue a registry.publish token for its namespace."
+    readiness_record "$stage" fail "The store token authenticates but is scoped to [${prefixes:-no namespace}], which does not cover $PACKAGE_ID. Issue a token for its namespace: registry.publish for releases, registry.read for scheduled readiness."
     return
   fi
   readiness_record "$stage" pass "GET /api/v1/account returned HTTP 200; the token's namespaces [$prefixes] cover $PACKAGE_ID."

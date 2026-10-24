@@ -56,7 +56,7 @@ Before signing, the action runs the [publish readiness](#publish-readiness) chec
 
 ## Publish readiness
 
-`MASS4ORG/action-brick-publish/readiness@v1` runs the same read-only checks without a signing key, so a scheduled or manual run catches what a tag run would fail on. It needs only the publish token and the signing identity's public key, never the private key or an administrator token. It runs every check, even after a failure, then reports one combined `ready`/`not ready` result with a UTC timestamp in the job summary and its `ready` and `checked-at` outputs, and fails the step when not ready.
+`MASS4ORG/action-brick-publish/readiness@v1` runs the same read-only checks without a signing key, so a scheduled or manual run catches what a tag run would fail on. It needs only a store token and the signing identity's public key, never the private key or an administrator token. A `registry.read` token for the namespace covers every check, so scheduled runs never need a publish token; the publish action repeats the checks with its publish token before signing. It runs every check, even after a failure, then reports one combined `ready`/`not ready` result with a UTC timestamp in the job summary and its `ready` and `checked-at` outputs, and fails the step when not ready.
 
 | Check                 | Request                                              | Fails when                                                                                                         |
 |-----------------------|------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
@@ -74,7 +74,7 @@ Registry signature trust and namespace publisher authority are independent layer
         with:
           image: ghcr.io/mass4org/turian-cli:3.4.0@sha256:…   # tag@digest also checks the tag
           public-key: ${{ vars.MASS4_BRICKS_CI_PUBLIC_KEY }}
-          store-token: ${{ secrets.MASS4_BRICKS_STORE_TOKEN }}
+          store-token: ${{ secrets.MASS4_BRICKS_READ_TOKEN }}
 ```
 
 | Input        | Default                    | Description                                                                 |
@@ -86,7 +86,7 @@ Registry signature trust and namespace publisher authority are independent layer
 | `image`      | required                   | The pinned `turian-cli` image, as `tag@sha256:…` to also check the tag      |
 | `store-url`  | `https://bricks.mass4.org` | Asset store the release would go to                                         |
 | `public-key` | required                   | OpenSSH public key of the signing identity                                  |
-| `store-token`| required                   | Raw publish token or the store token JSON export                            |
+| `store-token`| required                   | `registry.read` or publish token for the namespace, raw or JSON export     |
 
 ## Outputs
 
