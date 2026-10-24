@@ -1,0 +1,21 @@
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  credentials:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check credential helper syntax
+        run: bash -n scripts/store-token.sh
+      - name: Test normalization, authentication diagnostics and credential isolation
+        run: python3 -m unittest discover -s tests -v

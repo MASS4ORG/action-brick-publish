@@ -42,11 +42,15 @@ The signing container uses the pinned image's configured account, which OpenSSH 
 | `store-url`          | `https://bricks.mass4.org` | Asset store to upload to                                                            |
 | `signing-key`        | required                   | OpenSSH Ed25519 private key the store trusts for the brick's namespace              |
 | `public-key`         | required                   | Its public key                                                                      |
-| `store-token`        | required                   | Publish token for the store                                                         |
+| `store-token`        | required                   | Raw publish token or the store token JSON export                                    |
 
 `image` never defaults and never accepts a tag alone: archives are signed by the exact CLI that built them, and the release JSON records that image and its Turian version as the release's `build`. The source is uploaded before its twin, whose `bakeOf` names it; both share the brick's id and version, and each archive's own `package.json` says which variant it is.
 
 Before each upload the CLI reads the store's record of the same id, version and variant with the publish token. It refuses different bytes, a re-run built by another image than the one recorded, and a build that a curator advisory at `/api/v1/build-advisories` rejects, matched on the recorded build as well as this one. Identical bytes upload again; differences in metadata keep the store's first record and are reported as warnings.
+
+The `store-token` input accepts the raw `mass4_` bearer secret or the complete JSON token export, including a pretty-printed export with newlines. The action extracts the JSON `secret` field and trims surrounding whitespace and a pasted byte-order mark. It rejects malformed JSON, missing/non-string secrets and internal whitespace before making a request. You do not need to flatten the JSON. Exported expiry, scopes and prefixes are snapshots; the store decides current validity and permissions.
+
+The extracted secret is masked before use and reaches the CLI through its environment. Authentication is checked with a read-only `GET /api/v1/account` before publication: diagnostics distinguish local input errors, HTTP 401, HTTP 403, rate limits/server failures and network/TLS failures. No token, token metadata or response body is logged, and redirects are not followed. A successful account check confirms authentication; the release read and upload still enforce namespace and publish permissions.
 
 ## Outputs
 

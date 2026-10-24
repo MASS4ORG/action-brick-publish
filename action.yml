@@ -36,7 +36,7 @@ inputs:
     description: Its public key
     required: true
   store-token:
-    description: Publish token for the store
+    description: Raw publish token or the store token JSON export; surrounding whitespace is trimmed
     required: true
 
 outputs:
@@ -120,12 +120,10 @@ runs:
         STORE_URL: ${{ inputs.store-url }}
         STORE_TOKEN: ${{ inputs.store-token }}
       run: |
-        : "${STORE_TOKEN:?Missing publish token}"
-        # The CLI reads the token from GAYA_REGISTRY_TOKEN_<HOST>, the host upper-cased with other characters as _.
-        host="${STORE_URL#*://}"
-        host="${host%%[:/]*}"
-        variable="GAYA_REGISTRY_TOKEN_$(tr '[:lower:]' '[:upper:]' <<< "$host" | tr -c 'A-Z0-9\n' '_')"
-        export "$variable=$STORE_TOKEN"
+        set +x
+        source "$GITHUB_ACTION_PATH/scripts/store-token.sh"
+        prepare_store_token
+        check_store_authentication
         # Before sending, the CLI reads the store's record of the same id, version and variant: other bytes, or a re-run
         # built by another image than the recorded one, are refused, as is a build a curator advisory rejects. The
         # store's record is the provenance: identical bytes with other metadata keep the first record and warn.
