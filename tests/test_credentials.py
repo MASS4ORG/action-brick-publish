@@ -21,12 +21,15 @@ EXPORT = {
 
 
 class CredentialsTests(unittest.TestCase):
-    def run_helper(self, credential, status="200", curl_exit=0, upload=False):
+    def run_helper(self, credential, status="200", curl_exit=0, upload=False, trust=None):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             mock = directory / "curl"
             mock.write_text("""#!/usr/bin/env python3
 import json, os, pathlib, sys
+if sys.argv[-1].endswith('/v1/keys'):
+    sys.stdout.write(os.environ['TRUST_DOCUMENT'])
+    sys.exit(0)
 pathlib.Path(os.environ['CAPTURE']).write_text(json.dumps({
     'args': sys.argv[1:], 'stdin': sys.stdin.read(),
     'normalized': os.environ.get('GAYA_REGISTRY_TOKEN_STORE_EXAMPLE'),
@@ -45,12 +48,17 @@ with pathlib.Path(os.environ['DOCKER_CAPTURE']).open('a') as output:
         'token': os.environ.get('GAYA_REGISTRY_TOKEN_STORE_EXAMPLE')}) + '\\n')
 """)
             docker.chmod(0o755)
+            (directory / "qualified").mkdir()
+            (directory / "qualified/release.json").write_text(json.dumps({
+                "signedBy": "SHA256:" + "a" * 43, "packageId": "org.example.fixture"}))
             for name in ("env", "output"):
                 (directory / name).touch()
             environment = {
                 **os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"],
                 "STORE_TOKEN": credential, "STORE_URL": "https://store.example/",
                 "HTTP_STATUS": status, "CURL_EXIT": str(curl_exit),
+                "TRUST_DOCUMENT": json.dumps(trust if trust is not None else {
+                    "keys": [{"id": "SHA256:" + "a" * 43, "scopes": []}], "revokedKeys": []}),
                 "CAPTURE": str(directory / "capture"),
                 "GITHUB_ENV": str(directory / "env"),
                 "GITHUB_OUTPUT": str(directory / "output"),

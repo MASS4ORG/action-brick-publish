@@ -124,6 +124,7 @@ runs:
         source "$GITHUB_ACTION_PATH/scripts/store-token.sh"
         prepare_store_token
         check_store_authentication
+        check_store_signing_trust
         # Before sending, the CLI reads the store's record of the same id, version and variant: other bytes, or a re-run
         # built by another image than the recorded one, are refused, as is a build a curator advisory rejects. The
         # store's record is the provenance: identical bytes with other metadata keep the first record and warn.

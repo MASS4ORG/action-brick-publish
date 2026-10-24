@@ -65,3 +65,47 @@ check_store_authentication() {
       return 1 ;;
   esac
 }
+
+# Compare signed release metadata with the store's advertised registry authority, without granting trust.
+check_store_signing_trust() {
+  local document decision signer metadata="$GITHUB_WORKSPACE/$DIRECTORY/release.json"
+  if ! signer=$(jq -er '.signedBy | select(type == "string" and test("^SHA256:[A-Za-z0-9+/]{43}$"))' "$metadata" 2>/dev/null); then
+    printf '%s\n' '::error::Registry signing trust: signed release metadata has no valid signer fingerprint.' >&2
+    return 1
+  fi
+  if ! document=$(curl -q --silent --show-error --fail --proto '=http,https' \
+    --connect-timeout 10 --max-time 30 --url "${STORE_URL%/}/v1/keys" 2>/dev/null); then
+    printf '%s\n' '::error::Registry signing trust: could not read /v1/keys. Check store availability and API deployment; no archive was uploaded.' >&2
+    return 1
+  fi
+  if ! decision=$(printf '%s' "$document" | jq -er --slurpfile signed "$metadata" '
+    $signed[0] as $release |
+    if (.keys | type) != "array" or ((.revokedKeys // []) | type) != "array" then error("invalid discovery")
+    elif any(.revokedKeys[]?; .id == $release.signedBy) then "revoked"
+    else ([.keys[] | select(.id == $release.signedBy)] | first) as $key |
+      if $key == null then "missing"
+      elif (($key.scopes // []) | type) != "array" then error("invalid scopes")
+      elif (($key.scopes // []) | length) == 0 or
+        any($key.scopes[]; . as $prefix |
+          $release.packageId == $prefix or ($release.packageId | startswith($prefix + "."))) then "trusted"
+      else "scope" end
+    end
+  ' 2>/dev/null); then
+    printf '%s\n' '::error::Registry signing trust: /v1/keys returned an invalid trust document; no archive was uploaded.' >&2
+    return 1
+  fi
+  case "$decision" in
+    trusted)
+      printf 'Registry signing trust: %s is advertised for this package. Server signature verification remains authoritative.\n' "$signer" ;;
+    missing)
+      printf '::error::Registry signing trust: %s is absent from /v1/keys. Namespace publisher registration does not add registry trust. A store administrator must authorize this signing key in registry trust; no archive was uploaded.\n' "$signer" >&2
+      return 1 ;;
+    revoked)
+      printf '::error::Registry signing trust: %s is revoked; no archive was uploaded.\n' "$signer" >&2
+      return 1 ;;
+    scope)
+      printf '::error::Registry signing trust: %s is trusted outside this package namespace; no archive was uploaded.\n' "$signer" >&2
+      return 1 ;;
+    *) return 1 ;;
+  esac
+}

@@ -52,6 +52,8 @@ The `store-token` input accepts the raw `mass4_` bearer secret or the complete J
 
 The extracted secret is masked before use and reaches the CLI through its environment. Authentication is checked with a read-only `GET /api/v1/account` before publication: diagnostics distinguish local input errors, HTTP 401, HTTP 403, rate limits/server failures and network/TLS failures. No token, token metadata or response body is logged, and redirects are not followed. A successful account check confirms authentication; the release read and upload still enforce namespace and publish permissions.
 
+Before sending an archive, the action also checks the release signer against `/v1/keys`, including revocation and package-prefix restrictions. A missing registry key is reported separately from namespace publisher registration: both must authorize the CI signer. This read does not import keys or change server/client trust. Publication still performs authoritative signature and namespace checks; the preflight cannot eliminate races or replace consumer trust configuration.
+
 ## Outputs
 
 | Output         | Description                                     |
