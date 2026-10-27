@@ -9,13 +9,17 @@ permissions:
   contents: read
 
 jobs:
-  credentials:
+  check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Check credential helper syntax
-        run: bash -n scripts/store-token.sh scripts/readiness.sh
-      - name: Test normalization, readiness diagnostics and credential isolation
+      - name: Check action pins and CLI defaults
+        run: python3 scripts/check.py
+      - name: Run regression tests
         run: python3 -m unittest discover -s tests -v
+      - name: Lint workflow files and shell scripts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/lint.sh

@@ -64,6 +64,8 @@ readiness_fingerprint() {
 # must match the tag. Sets READY_IMAGE (name@sha256 form, as release.yml records it) and READY_VERSION.
 readiness_check_image() {
   local stage=image tag digest repository resolved
+  # IMAGE is supplied by the action, independently from receipt-local image variables.
+  # shellcheck disable=SC2153
   if [[ ! "$IMAGE" =~ ^(ghcr\.io/mass4org/turian-cli)(:([A-Za-z0-9._-]+))?@(sha256:[0-9a-f]{64})$ ]]; then
     readiness_record "$stage" fail "$IMAGE is not ghcr.io/mass4org/turian-cli pinned by sha256 digest."
     return
@@ -109,7 +111,7 @@ readiness_check_account() {
   fi
   if ! jq -e --arg id "$PACKAGE_ID" 'any(.prefixes[]; . as $p | $id == $p or ($id | startswith($p + ".")))' \
     "$HTTP_BODY" > /dev/null; then
-    readiness_record "$stage" fail "The store token authenticates but is scoped to [${prefixes:-no namespace}], which does not cover $PACKAGE_ID. Issue a token for its namespace: registry.publish for releases, registry.read for scheduled readiness."
+    readiness_record "$stage" fail "The store token authenticates but is scoped to [${prefixes:-no namespace}], which does not cover $PACKAGE_ID. Use a registry.publish token covering the release namespace."
     return
   fi
   readiness_record "$stage" pass "GET /api/v1/account returned HTTP 200; the token's namespaces [$prefixes] cover $PACKAGE_ID."
@@ -201,7 +203,11 @@ readiness_check_provenance() {
 # Curator advisories that would refuse or flag this build.
 readiness_check_advisories() {
   local stage=advisories rows id reject image range
-  readiness_get /api/v1/build-advisories authenticated
+  if [[ "${PUBLIC_PREFLIGHT:-false}" == true ]]; then
+    readiness_get /api/v1/build-advisories
+  else
+    readiness_get /api/v1/build-advisories authenticated
+  fi
   if [[ "$HTTP_STATUS" != 200 ]]; then
     readiness_record "$stage" fail "$(readiness_http_problem /api/v1/build-advisories)"
     return
@@ -253,14 +259,22 @@ readiness_run() {
   else
     readiness_check_image
   fi
-  if READY_FINGERPRINT=$(readiness_fingerprint); then
+  if [[ "${PUBLIC_PREFLIGHT:-false}" == true && -z "${PUBLIC_KEY:-}" ]]; then
+    readiness_record signing-identity skip 'No public-key dispatch input; no publishing identity was verified.'
+    readiness_record registry-trust skip 'Supply the optional publisher public key to verify its registry trust.'
+    readiness_record namespace-publisher skip 'Supply the optional publisher public key to verify namespace authority.'
+  elif READY_FINGERPRINT=$(readiness_fingerprint); then
     readiness_check_registry_trust
     readiness_check_namespace
   else
     readiness_record signing-identity fail "The public-key input is not a single OpenSSH ssh-ed25519 public key."
   fi
   # Its stdout carries the mask for the extracted secret, so it must reach the runner.
-  if prepare_store_token 2> /dev/null; then
+  if [[ "${PUBLIC_PREFLIGHT:-false}" == true ]]; then
+    readiness_record account skip 'No token in manual preflight; checked by the tag-time publish preflight.'
+    readiness_record provenance skip 'No token in manual preflight; pending release receipts are checked at tag time.'
+    readiness_check_advisories
+  elif prepare_store_token 2> /dev/null; then
     readiness_check_account
     readiness_check_provenance
     readiness_check_advisories
@@ -274,6 +288,9 @@ readiness_report() {
   local timestamp result=ready
   timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   [[ "$READINESS_FAILURES" == 0 ]] || result="not ready"
+  if [[ "$result" == ready && "${PUBLIC_PREFLIGHT:-false}" == true ]]; then
+    result='public checks passed (partial)'
+  fi
   printf 'Publish readiness for %s %s at %s: %s (%s failing checks).\n' "${PACKAGE_ID-}" "${PACKAGE_VERSION-}" \
     "${STORE_URL-}" "$result" "$READINESS_FAILURES"
   if [[ -n "${GITHUB_STEP_SUMMARY-}" ]]; then
@@ -291,5 +308,5 @@ readiness_report() {
     { echo "ready=$([[ "$result" == ready ]] && echo true || echo false)"; echo "checked-at=$timestamp"; } >> "$GITHUB_OUTPUT"
   fi
   rm -rf "$READINESS_SCRATCH"
-  [[ "$result" == ready ]]
+  [[ "$READINESS_FAILURES" == 0 ]]
 }

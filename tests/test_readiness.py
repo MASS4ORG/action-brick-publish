@@ -257,6 +257,26 @@ if arguments[:2] == ['image', 'inspect']:
         self.assertEqual(0, result.returncode, logs)
         self.assertIn(f"Publish readiness for {PACKAGE} 1.0.2", logs)
 
+    def test_manual_preflight_without_key_uses_no_credentials_and_never_claims_ready(self):
+        result, logs, summary, outputs, requests = self.run_readiness(public='', token='',
+            extra={'PUBLIC_PREFLIGHT': 'true'})
+        self.assertEqual(0, result.returncode, logs)
+        self.assertIn('public checks passed (partial)', summary)
+        self.assertIn('ready=false', outputs)
+        self.assertIn('No public-key dispatch input', summary)
+        self.assertIn('checked by the tag-time publish preflight', summary)
+        self.assertFalse(any(request['authenticated'] for request in requests))
+        self.assertEqual(['https://store.example/api/v1/build-advisories'], [request['url'] for request in requests])
+
+    def test_manual_preflight_with_public_key_checks_both_identity_layers_without_token(self):
+        result, logs, summary, outputs, requests = self.run_readiness(token='',
+            extra={'PUBLIC_PREFLIGHT': 'true'})
+        self.assertEqual(0, result.returncode, logs)
+        self.assertIn('is in registry signature trust', logs)
+        self.assertIn('is a publisher key of namespace org.mass4', logs)
+        self.assertFalse(any(request['authenticated'] for request in requests))
+        self.assertIn('ready=false', outputs)
+
     def test_publish_action_checks_source_and_twin_before_signing(self):
         action = (ROOT / "action.yml").read_text()
         step = action.split("    - name: Check publish readiness\n", 1)[1].split("    - name: Sign\n", 1)[0]

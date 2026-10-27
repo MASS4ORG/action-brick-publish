@@ -5,9 +5,7 @@ branding:
   icon: check-circle
   color: purple
 
-# Needs only a store token and the signing identity's public key; the private key is never an input. Runs the same
-# checks as the publish action, so a scheduled or manual run catches what a tag run would fail on. A registry.read
-# token covers every check; only the publish job's own run proves the publish scope.
+# Public-only mode runs without credentials. Full readiness runs inside tag-time publication.
 inputs:
   brick-path:
     description: Brick folder, relative to the workspace, whose package.json names the release; unused when package-id is set
@@ -28,11 +26,17 @@ inputs:
     description: Asset store the release would be uploaded to
     default: https://bricks.mass4.org
   public-key:
-    description: OpenSSH public key of the signing identity
-    required: true
+    description: Optional OpenSSH public key; omitted identity checks are skipped in public-only mode
+    default: ""
   store-token:
-    description: Raw registry.read or registry.publish token, or the store token JSON export, for the brick's namespace
-    required: true
+    description: Namespace token for full tag-time readiness; unused in public-only mode
+    default: ""
+  public-only:
+    description: Run only unauthenticated checks and report the remaining checks as skipped
+    default: "false"
+  verified-version:
+    description: Version label already verified by the shared image resolver
+    default: ""
 
 outputs:
   ready:
@@ -57,6 +61,8 @@ runs:
         STORE_URL: ${{ inputs.store-url }}
         PUBLIC_KEY: ${{ inputs.public-key }}
         STORE_TOKEN: ${{ inputs.store-token }}
+        PUBLIC_PREFLIGHT: ${{ inputs.public-only }}
+        READINESS_VERIFIED_VERSION: ${{ inputs.verified-version }}
       run: |
         set +x
         source "$GITHUB_ACTION_PATH/../scripts/store-token.sh"
