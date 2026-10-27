@@ -17,10 +17,10 @@ inputs:
     description: Release version; empty to read it from the manifest
     default: ""
   variants:
-    description: Space-separated release variants whose store record is read, e.g. "source turian3.4"
+    description: Space-separated release variants whose store records are checked
     default: source
   image:
-    description: The ghcr.io/mass4org/turian-cli image the release workflow pins, as tag@sha256 to also check the tag
+    description: Resolved CLI image digest; a tag@digest reference also checks tag identity
     required: true
   store-url:
     description: Asset store the release would be uploaded to

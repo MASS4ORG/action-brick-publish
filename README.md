@@ -1,8 +1,8 @@
 # Brick publish action
 
-Sign qualified brick archives and upload them to a MASS4-compatible store. Most callers should use the [reusable release workflow](https://github.com/MASS4ORG/action-brick-release), which plans the build, tests archives without credentials and runs this action in an isolated publishing job.
+Sign qualified brick archives and upload them to a MASS4-compatible store. Most callers should use the [reusable release workflow](https://github.com/MASS4ORG/brick-workflows), which plans the build, tests archives without credentials and runs this action in an isolated publishing job.
 
-Configure `brick-production` as a secret container restricted to `v*` tags, with no required reviewer. It needs two secrets and no variables: `MASS4_BRICKS_CI_SIGNING_KEY` and `MASS4_BRICKS_STORE_TOKEN`. The public key is derived from the private key with `ssh-keygen -y`; the key must be unencrypted OpenSSH Ed25519. Register the derived public key with your store and grant the token `registry.publish` for your namespace.
+Configure `brick-production` as a secret container restricted to `v*` tags, with no required reviewer. It needs two secrets and no variables: `BRICKS_SIGNING_KEY` and `BRICKS_STORE_ACCESS_TOKEN`. The public key is derived from the private key with `ssh-keygen -y`; the key must be unencrypted OpenSSH Ed25519. Register the derived public key with your store and grant the token `registry.publish` for your namespace.
 
 | Input | Purpose |
 |---|---|

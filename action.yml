@@ -121,6 +121,7 @@ runs:
         TWIN_ARCHIVE: ${{ inputs.twin-archive }}
         TWIN_QUALIFICATION: ${{ inputs.twin-qualification }}
         TURIAN_VERSION: ${{ steps.check.outputs.version }}
+        # Retain the recorded CLI image's environment protocol, independently of GitHub secret names.
         MASS4_BRICKS_CI_SIGNING_KEY: ${{ inputs.signing-key }}
         MASS4_BRICKS_CI_PUBLIC_KEY: ${{ steps.identity.outputs.public-key }}
       run: |
